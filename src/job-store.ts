@@ -1,20 +1,29 @@
+import type { MaybePromise } from "@giveback007/util-lib";
+
 import { randomUUID } from "node:crypto";
+import { isDone } from "./rules/general.rules.js";
 
 export class JobStore<TJob extends Job> {
     private jobs = new Map<string, TJob>();
-    private persistence?: PersistenceAdapter<TJob> | null;
+    private persistence: PersistenceAdapter<TJob> | undefined;
+    private onDelete: ((job: TJob) => MaybePromise<boolean>) | undefined;
 
-    constructor(
-        persistence: PersistenceAdapter<TJob> | null = null
-    ) {
-        this.persistence = persistence;
+    constructor(opts: {
+        persistence?: PersistenceAdapter<TJob>,
+        onDelete?: (job: TJob) => MaybePromise<boolean>,
+    }) {
+        this.persistence = opts.persistence;
+        this.onDelete = opts.onDelete;
     }
 
     get = (id: string) => this.jobs.get(id);
     set = (id: string, val: TJob) => this.jobs.set(id, val);
-    del = (id: string) => {
+    del = async (id: string) => {
+        const job = this.get(id);
         this.jobs.delete(id);
-        this.persistence?.delete(id);
+        
+        await this.persistence?.delete(id);
+        return job ? this.onDelete?.(job) : true;
     }
     get size() { return this.jobs.size; }
 
@@ -43,8 +52,7 @@ export class JobStore<TJob extends Job> {
         if (!job) return false;
 
         job.status = status;
-        const isDone = status === 'completed' || status === 'failed';
-        if (isDone) {
+        if (isDone(job)) {
             job.completedAt = Date.now();
             if (this.persistence) return await this.persistence.save(job);
         } else if (status === 'processing') {

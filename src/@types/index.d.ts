@@ -16,6 +16,7 @@ type PersistenceAdapter<TJob extends Job> = {
     save: (job: TJob) => Promise<boolean>;
     load: () => Promise<TJob[]>;
     delete: (jobId: string) => Promise<boolean>;
+    cleanupOrphans: (keepIds: Set<string>) => Promise<void>;
 }
 
 interface ILimiter {

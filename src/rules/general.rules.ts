@@ -1,0 +1,1 @@
+export const isDone = (x: Job) => x.status === 'completed' || x.status === 'failed'

@@ -2,6 +2,9 @@ import { writeFile, rename, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { readJsonFile } from './general.utils.js';
 
+const TYPE_TEMP = '.persist.temp';
+const TYPE_JSON = '.persist.json';
+
 export class PersistenceJsonFile<TJob extends Job> implements PersistenceAdapter<TJob> {
     private dir: string;
 
@@ -9,12 +12,15 @@ export class PersistenceJsonFile<TJob extends Job> implements PersistenceAdapter
         this.dir = dir;
     }
 
+    private temp = (id: string) => join(this.dir, `${id}${TYPE_TEMP}`);
+    private json = (id: string) => join(this.dir, `${id}${TYPE_JSON}`);
+
     async save(job: TJob): Promise<boolean> {
-        const tmp = join(this.dir, `${job.id}.tmp`)
+        const tmp = this.temp(job.id)
         await writeFile(tmp, JSON.stringify(job));
 
-        // rename file .tmp to .json (for corrupt/half-written files)
-        await rename(tmp, join(this.dir, `${job.id}.json`))
+        // rename file .temp to .json (for corrupt/half-written files)
+        await rename(tmp, this.json(job.id))
         return true;
     }
 
@@ -23,7 +29,7 @@ export class PersistenceJsonFile<TJob extends Job> implements PersistenceAdapter
 
         const jobs: TJob[] = []
         for (const f of files) {
-            if (!f.endsWith('.json')) continue;
+            if (!f.endsWith(TYPE_JSON)) continue;
             try {
                 jobs.push(await readJsonFile(join(this.dir, f)))
             } catch(err) {
@@ -37,15 +43,23 @@ export class PersistenceJsonFile<TJob extends Job> implements PersistenceAdapter
     async delete(jobId: string): Promise<boolean> {
         let didCleanUp = false;
         try {
-            await unlink(join(this.dir, `${jobId}.tmp`))
+            await unlink(this.temp(jobId))
             didCleanUp = true;
         } catch {}
 
         try {
-            await unlink(join(this.dir, `${jobId}.json`))
+            await unlink(this.json(jobId))
             didCleanUp = true;
         } catch {}
 
         return didCleanUp
+    }
+
+    async cleanupOrphans(keepIds: Set<string>): Promise<void> {
+        const files = (await readdir(this.dir)).filter(x => x.endsWith(TYPE_JSON) || x.endsWith(TYPE_TEMP))
+        for (const f of files) {
+            const id = f.replace(TYPE_TEMP, "").replace(TYPE_JSON, "");
+            if (!keepIds.has(id)) try { await unlink(join(this.dir, f)) } catch {}
+        }
     }
 }

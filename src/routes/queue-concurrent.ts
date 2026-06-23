@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
-import { objExtract, type MaybePromise } from '@giveback007/util-lib';
+import { objExtract, time, type MaybePromise } from '@giveback007/util-lib';
 import { JobStore } from '../job-store.js';
 import { QueueManager } from '../queue-manager.js';
 import { Limiter } from '../limiter.js';
+import { isDone } from '../rules/general.rules.js';
 
 type JobData<T> = 
     | { ok: true;   data: T;            error?: undefined;                      status?: undefined; } 
@@ -12,6 +13,30 @@ type JobData<T> =
 type JobResult<T> = 
     | { ok: true;   data: T;            error?: undefined;  jobId: string; }
     | { ok: false;  data?: undefined;   error: JobError;    jobId: string; }
+
+function cleanUp<TJob extends Job>(
+    jobs: JobStore<TJob>,
+    jobTLL: number,
+    cleanupIntv: number,
+    persistence?: PersistenceAdapter<TJob>,
+) {
+    const cleanupTimer = setInterval(() => {
+        const now = Date.now();
+        jobs.forEach((job, id) => {
+            if (!isDone(job)) return;
+
+            const age = now - (job.completedAt ?? job.createdAt)
+            if (age >= jobTLL) jobs.del(id)
+        })
+
+        if (!persistence) return;
+        const idSet = new Set(jobs.toArr().map(([, x]) => x.id))
+        persistence.cleanupOrphans(idSet);
+    }, cleanupIntv)
+    cleanupTimer.unref()
+
+    return cleanupTimer;
+}
 
 /** `TBody` (post req) -> `TData` (pre-check &/or pre-process before job) -> `TResult` (result after job) */
 export function jobQueueRoutesConcurrent<
@@ -33,6 +58,8 @@ export function jobQueueRoutesConcurrent<
         /** Runs on DELETE `/jobs/:id` is called */
         onDelete?: (job: TJob) => MaybePromise<boolean>,
         persistence?: PersistenceAdapter<TJob>;
+        jobTTL?: number;        // ms, default 72h
+        cleanupIntv?: number;   // ms, default 15min
         apiKey?: string;
     } 
     // 
@@ -41,8 +68,7 @@ export function jobQueueRoutesConcurrent<
     //     // msBatchAccumulate: number;
     //     // batchProcess: (job: TJob[]) => Promise<JobResult<TResult>[]>;
     // })
-) {
-    
+) {    
     if (opts.apiKey) {
         app.addHook('onRequest', async (req, reply) => {
             if (req.url === '/health') return;
@@ -61,7 +87,7 @@ export function jobQueueRoutesConcurrent<
         return { ok: true }
     })
 
-    const jobs = new JobStore<TJob>(opts.persistence);
+    const jobs = new JobStore<TJob>(opts);
     const queue = new QueueManager(new Limiter(opts.concurrency));
 
     async function status(job: TJob | TJob[], status: TJob['status']) {
@@ -91,6 +117,8 @@ export function jobQueueRoutesConcurrent<
             await status(job, 'failed');
         }
     })
+
+    // -- // -- // -- // |+| // -- // -- // -- //
 
     // Step 1: Receive the job request and set in queue
     app.post<{ Body: TBody }>('/jobs', async (req, reply) => {
@@ -126,8 +154,7 @@ export function jobQueueRoutesConcurrent<
             return { error: { message: 'not found' } };
         }
 
-        const isDone = job.status === 'completed' || job.status === 'failed';
-        if (!isDone) { 
+        if (!isDone(job)) { 
             reply.code(202); 
             return { error: { message: 'not ready' } };
         }
@@ -143,12 +170,17 @@ export function jobQueueRoutesConcurrent<
             return { error: { message: 'not found' } }; 
         }
 
-        jobs.del(job.id);
-        await opts.onDelete?.(job);
+        const didDelete = await jobs.del(job.id);
 
         reply.code(200);
-        return { success: true };
+        return { success: didDelete };
     });
+
+    // -- // -- // -- // |+| // -- // -- // -- //
+
+    const JOB_TTL = opts.jobTTL ?? time.hrs(72);
+    const CLEANUP_INTERVAL = opts.cleanupIntv ?? time.min(15);
+    const cleanupTimer = cleanUp(jobs, JOB_TTL, CLEANUP_INTERVAL);
 
     // Run saved/persisted jobs (useful for handling server reboot)
     app.addHook('onReady', async () => {
@@ -162,6 +194,8 @@ export function jobQueueRoutesConcurrent<
             if (job.status === 'pending') queueJob(job);
         });
     });
+
+    app.addHook('onClose', () => clearInterval(cleanupTimer))
 }
 
 /* Save this code to use when need to create a batch version: */
