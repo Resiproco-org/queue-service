@@ -47,6 +47,16 @@ export class JobStore<TJob extends Job> {
         return job;
     }
 
+    /** Load jobs from persistence */
+    loadFromPersistence = async () => {
+        if (!this.persistence) return [];
+
+        const saved = await this.persistence.load();
+        for (const job of saved) this.jobs.set(job.id, job);
+
+        return saved;
+    }
+
     setStatus = async (id: string, status: TJob['status']) => {
         const job = this.jobs.get(id)
         if (!job) return false;

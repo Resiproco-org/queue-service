@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { jobQueueRoutesConcurrent } from "../../src/routes/queue-concurrent";
-import { PersistenceJsonFile } from "../../src/persistence";
+import { PersistenceViaJsonFiles } from "../../src/persistence";
 import { numRandInt, wait } from "@giveback007/util-lib";
 import { join } from "node:path";
 
@@ -19,7 +19,7 @@ setTimeout(async () => {
     >(app, {
         concurrency: 150,
         onJobRequest: (req) => ({ ok: true, data: { id: req.body.id, start: Date.now() } }),
-        persistence: new PersistenceJsonFile(join(import.meta.dirname, '/tmp')),
+        persistence: new PersistenceViaJsonFiles(join(import.meta.dirname, '/tmp')),
         process: async (data) => {
             await wait(numRandInt(1, 12) * 1000);
             

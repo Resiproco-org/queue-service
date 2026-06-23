@@ -5,7 +5,7 @@ import { readJsonFile } from './general.utils.js';
 const TYPE_TEMP = '.persist.temp';
 const TYPE_JSON = '.persist.json';
 
-export class PersistenceJsonFile<TJob extends Job> implements PersistenceAdapter<TJob> {
+export class PersistenceViaJsonFiles<TJob extends Job> implements PersistenceAdapter<TJob> {
     private dir: string;
 
     constructor(dir: string) {

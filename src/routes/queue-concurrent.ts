@@ -182,17 +182,11 @@ export function jobQueueRoutesConcurrent<
     const CLEANUP_INTERVAL = opts.cleanupIntv ?? time.min(15);
     const cleanupTimer = cleanUp(jobs, JOB_TTL, CLEANUP_INTERVAL);
 
-    // Run saved/persisted jobs (useful for handling server reboot)
     app.addHook('onReady', async () => {
-        if (!opts.persistence) return;
-
-        const saved = await opts.persistence.load();
-        saved.forEach(job => {
-            jobs.set(job.id, job);
-            // status is only persisted on "failed", "completed", and "pending"
-            // so we only need to check on "pending" ("processing" is not persisted, bcs "processing" is reset on reboot)
-            if (job.status === 'pending') queueJob(job);
-        });
+        // status is only persisted on "failed", "completed", and "pending"
+        // so we only need to check on "pending" ("processing" status is not persisted, treated as "pending" again)
+        const saved = await jobs.loadFromPersistence();
+        saved.filter(j => j.status === 'pending').forEach(queueJob);
     });
 
     app.addHook('onClose', () => clearInterval(cleanupTimer))
