@@ -1,0 +1,52 @@
+{
+  "compilerOptions": {
+    // ── Module ──────────────────────────────────
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "esnext",
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    // ── Strict family (enables 9 flags below) ───
+    "strict": true,
+    //  ├─ alwaysStrict                          (always true in TS7)
+    //  ├─ strictNullChecks
+    //  ├─ strictBindCallApply
+    //  ├─ strictBuiltinIteratorReturn
+    //  ├─ strictFunctionTypes
+    //  ├─ strictPropertyInitialization
+    //  ├─ noImplicitAny
+    //  ├─ noImplicitThis
+    //  └─ useUnknownInCatchVariables
+
+    // ── Extra strict (NOT covered by `strict`) ──
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUncheckedIndexedAccess": true,
+    "noUncheckedSideEffectImports": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // ── Interop / emit ─────────────────────────
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "erasableSyntaxOnly": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": false,
+
+    // ── Library output ─────────────────────────
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

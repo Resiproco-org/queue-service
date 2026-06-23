@@ -1,0 +1,37 @@
+{
+    "name": "service-lib",
+    "version": "1.0.0",
+    "description": "",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "dev": "concurrently -n server,scrap -c green,gray \"cd test && tsx --env-file=.env --watch server/server.ts\" \"cd test && tsx --env-file=.env --watch scrap/scrap.ts\"",
+        "typecheck": "tsc --noEmit"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devEngines": {
+        "packageManager": {
+            "name": "pnpm",
+            "version": "^11.4.0",
+            "onFail": "download"
+        }
+    },
+    "devDependencies": {
+        "@types/node": "^26.0.0",
+        "tsx": "^4.22.4",
+        "typescript": "7.0.1-rc",
+        "fastify": "^5.8.5"
+    },
+    "dependencies": {
+        "@giveback007/util-lib": "^3.5.3"
+    }
+}
