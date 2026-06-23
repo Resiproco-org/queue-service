@@ -1,6 +1,5 @@
 import Fastify from "fastify";
-import { jobQueueRoutesConcurrent } from "../../src/routes/queue-concurrent";
-import { PersistenceViaJsonFiles } from "../../src/persistence";
+import { PersistenceViaJsonFiles, jobQueueRoutesConcurrent } from "../../src/";
 import { numRandInt, wait } from "@giveback007/util-lib";
 import { join } from "node:path";
 

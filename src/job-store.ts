@@ -11,7 +11,7 @@ export class JobStore<TJob extends Job> {
     constructor(opts: {
         persistence?: PersistenceAdapter<TJob>,
         onDelete?: (job: TJob) => MaybePromise<boolean>,
-    }) {
+    } = {}) {
         this.persistence = opts.persistence;
         this.onDelete = opts.onDelete;
     }

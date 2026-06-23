@@ -2,7 +2,7 @@
 Job queue toolkit for Fastify with concurrency control, persistence, and auto-cleanup.
 
 ```bash
-pnpm add @resiproco-org/queue-service
+pnpm add @resiproco/queue-service
 ```
 
 ---
@@ -11,7 +11,7 @@ pnpm add @resiproco-org/queue-service
 
 ```ts
 import Fastify from 'fastify'
-import { jobQueueRoutesConcurrent } from '@resiproco-org/queue-service'
+import { jobQueueRoutesConcurrent } from '@resiproco/queue-service'
 
 const app = Fastify()
 
@@ -32,7 +32,7 @@ That's it. `GET /health` is ready, `POST /jobs` accepts any body and echoes it b
 
 ```ts
 import Fastify from 'fastify'
-import { jobQueueRoutesConcurrent, PersistenceViaJsonFiles } from '@resiproco-org/queue-service'
+import { jobQueueRoutesConcurrent, PersistenceViaJsonFiles } from '@resiproco/queue-service'
 import { numRandInt, wait } from '@giveback007/util-lib'
 import { join } from 'node:path'
 
@@ -119,7 +119,7 @@ console.log(result)
 Jobs persist to disk with atomic writes. On server reboot, pending jobs are re-queued automatically.
 
 ```ts
-import { PersistenceViaJsonFiles } from '@resiproco-org/queue-service'
+import { PersistenceViaJsonFiles } from '@resiproco/queue-service'
 import { join } from 'node:path'
 
 jobQueueRoutesConcurrent(app, {
@@ -172,7 +172,7 @@ The low-level primitives are exported for standalone use.
 ### `Limiter`
 
 ```ts
-import { Limiter } from '@resiproco-org/queue-service'
+import { Limiter } from '@resiproco/queue-service'
 
 const limit = new Limiter(3)
 
@@ -192,7 +192,7 @@ limit.isFull // false
 Limits both concurrent and max-per-minute operations.
 
 ```ts
-import { LimiterWithTime } from '@resiproco-org/queue-service'
+import { LimiterWithTime } from '@resiproco/queue-service'
 
 const limit = new LimiterWithTime(5, 100)  // 5 concurrent, 100 per minute
 
@@ -205,7 +205,7 @@ limit.acquire()
 A FIFO queue that drains under a limiter. No more than N items run at once; the rest wait.
 
 ```ts
-import { QueueManager, Limiter } from '@resiproco-org/queue-service'
+import { QueueManager, Limiter } from '@resiproco/queue-service'
 
 const queue = new QueueManager(new Limiter(3))
 
@@ -219,7 +219,7 @@ queue.enqueue(() => heavyTask())
 Accumulates items over a time window, then flushes them as a batch.
 
 ```ts
-import { BatchProcessManager, Limiter } from '@resiproco-org/queue-service'
+import { BatchProcessManager, Limiter } from '@resiproco/queue-service'
 
 const manager = new BatchProcessManager(
     new Limiter(2),
@@ -236,7 +236,7 @@ const result2 = await manager.enqueue({ id: 'b' })
 In-memory job lifecycle manager with optional persistence.
 
 ```ts
-import { JobStore, PersistenceViaJsonFiles } from '@resiproco-org/queue-service'
+import { JobStore, PersistenceViaJsonFiles } from '@resiproco/queue-service'
 
 const store = new JobStore({ persistence: new PersistenceViaJsonFiles('./data') })
 

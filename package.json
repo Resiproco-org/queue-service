@@ -1,6 +1,6 @@
 {
-    "name": "service-lib",
-    "version": "1.0.0",
+    "name": "@resiproco/queue-service",
+    "version": "1.0.1",
     "description": "",
     "type": "module",
     "main": "./dist/index.js",
@@ -11,13 +11,22 @@
             "import": "./dist/index.js"
         }
     },
+    "publishConfig": {
+        "access": "public"
+    },
     "scripts": {
         "dev": "concurrently -n server,scrap -c green,gray \"cd test && tsx --env-file=.env --watch server/server.ts\" \"cd test && tsx --env-file=.env --watch scrap/scrap.ts\"",
-        "typecheck": "tsc --noEmit"
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "pub": "rm -rf dist && pnpm build && pnpm publish"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
+    "files": [
+        "/dist",
+        "/src"
+    ],
     "devEngines": {
         "packageManager": {
             "name": "pnpm",
@@ -28,10 +37,12 @@
     "devDependencies": {
         "@types/node": "^26.0.0",
         "tsx": "^4.22.4",
-        "typescript": "7.0.1-rc",
-        "fastify": "^5.8.5"
+        "typescript": "7.0.1-rc"
     },
     "dependencies": {
-        "@giveback007/util-lib": "^3.5.3"
+        "@giveback007/util-lib": "^4.0.1"
+    },
+    "peerDependencies": {
+        "fastify": "^5"
     }
 }

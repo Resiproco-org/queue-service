@@ -40,7 +40,7 @@
     "erasableSyntaxOnly": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "skipLibCheck": false,
+    "skipLibCheck": true,
 
     // ── Library output ─────────────────────────
     "declaration": true,
