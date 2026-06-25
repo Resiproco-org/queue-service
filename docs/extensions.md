@@ -103,6 +103,55 @@ already-running interval also sweeps orphan files.
 
 ---
 
+## 5. `fileType` — file MIME detection with fallback
+
+**Engine ref:** `services/engine/src/engine/engine.utils.ts:57-70`
+
+Reads a file, detects MIME type via `file-type`, falls back to a caller-provided
+MIME if detection fails (e.g., on Linux without `shared-mime-info`), validates
+against an allowlist, and categorizes into `pdf | docx | img`.
+
+```ts
+import { fileType } from '@resiproco/queue-service'
+import { ALLOWED_FILES } from './consts.config'
+
+const info = await fileType(paths.uploadPath, allowedMimes, fallbackMime)
+// → { type: { ext: 'pdf', mime: 'application/pdf' }, ext: 'pdf', ctg: 'pdf' }
+// or null if type is unsupported
+```
+
+Useful alongside `receiveUpload` — `req.file()` reports the client-claimed MIME
+(which can be wrong or empty).  `fileType` checks the actual file bytes.
+
+---
+
+## 6. `saveErrorSnapshot` — error forensic archiver
+
+**Engine ref:** `services/engine/src/utils/errors.utils.ts:6-35`
+
+When a job fails, copies all relevant task files (output dir, uploaded file,
+temp file) into the job's `errDir` along with a full context JSON dump.  Pairs
+with `errDir` in `FilePaths`.
+
+```ts
+import { saveErrorSnapshot } from '@resiproco/queue-service'
+
+// inside process() on failure:
+await saveErrorSnapshot({
+    sources: [
+        [paths.outDir,      'out'       ],
+        [paths.uploadPath,  'uploaded'   ],
+        [paths.tmpPath,     'temp'      ],
+    ],
+    context: { jobId, error, stage: 'ocr' },
+})
+```
+
++ Complete forensic snapshot for debugging failed processing
++ User can then serve it via `serveFile` / `loadErrorContext` later
+
+---
+
 ## Priority
 
 | # | Name | Priority | Reason |
@@ -111,3 +160,5 @@ already-running interval also sweeps orphan files.
 | 2  | `loadErrorContext` | Low | Trivial; user can write it |
 | 3  | `cleanupDirs` | Medium | Completes the file-cleanup story |
 | 4  | `startFileCleanup` | Low | Existing TTL sweep covers 90 % |
+| 5  | `fileType` | Medium | Addresses MIME detection blind spots in `receiveUpload` |
+| 6  | `saveErrorSnapshot` | Medium | Completes the error/debugging story; pairs with `loadErrorContext` |

@@ -1,110 +1,12 @@
+import type { OpenAiTryFetchResult } from "../@types/openai.js";
+
 import { msTime, wait } from "@giveback007/util-lib";
+import { extractOutputJson, getMsTime, openAiRequestOptionsFn, openAITryFetch, type PromptReqOpts, type ReqInit } from "./openai.utils.js";
 
 const MAX_RETRIES = 5;
 
-type SchemaProperty =
-    | { type: "string"; enum?: string[] }
-    | { type: "boolean" }
-    | { type: "number" }
-    | { type: "integer" }
-    | { type: "array"; items: SchemaProperty }
-    | OpenAiSchemaObject;
-
-export type OpenAiSchemaObject = {
-    type: "object";
-    properties: Record<string, SchemaProperty>;
-    required: string[];
-    additionalProperties: false;
-}
-
-export type PromptReqOpts = {
-    openAiApiKey: string;
-    systemPrompt: string;
-    jsonSchema: {
-        name: string;
-        schema: OpenAiSchemaObject;
-    }
-    verbosity?: "low" | "medium" | "high",
-    reasoning?: {
-        effort: "minimal" | "low" | "medium" | "high",
-        summary: null | "auto" | "detailed" | "concise",
-    },
-}
-
-type ReqInit = {
-    method: string;
-    headers: {
-        "Content-Type": string;
-        Authorization: string;
-    };
-    body: string;
-}
-
-export function openAiRequestOptionsFn(
-    llmModel: string,
-    opts: PromptReqOpts,
-) {
-    const {
-        verbosity = 'low',
-        reasoning = { effort: "minimal", summary: null },
-    } = opts;
-
-    const body = {
-        model: llmModel,
-        reasoning,
-        store: false,
-        tools: [],
-        include: [],
-        text: {
-            format: {
-                type: "json_schema",
-                strict: true,
-                ...opts.jsonSchema
-            },
-            verbosity,
-        },
-    }
-
-    const getInputs = (text: string) => {
-        const input = [{
-            role: "user",
-            content: [{ type: "input_text", text }]
-        }];
-
-        if (opts.systemPrompt) input.unshift({
-            role: "developer",
-            content: [{ type: "input_text", text: opts.systemPrompt }]
-        })
-
-        return input
-    }
-
-    return (inputText: string): ReqInit => ({
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + opts.openAiApiKey
-        },
-        body: JSON.stringify({ ...body, input: getInputs(inputText) })
-    })
-}
-
-function getMsTime(time: string) {
-    if (/^\d+m[\d.]+s$/.test(time) || time.endsWith('m')) {
-        const [_min, _sec] = time.split("m") as [string, string | undefined];
-        const min = Number(_min), sec = Number(_sec?.replace("s", "")) || 0;
-        return msTime.m * min + msTime.s * sec;
-    } if (time.endsWith("ms")) {
-        return Number(time.split("ms")[0]!);
-    } else if (time.endsWith("s")) {
-        return Number(time.split("s")[0]!) * 1000;
-    } else {
-        throw new Error("Unhandled timing")
-    }
-}
-
 export class OpenAiRateLimiter {
-    private limitDate = Date.now();
+    private limitDate = 0;
     private limitRequests = 500;
     private limitTokens = 200_000;
 
@@ -114,35 +16,30 @@ export class OpenAiRateLimiter {
     private requestsInProcess = 0;
     private tokensInProcess = 0;
 
-    private estimatedTokensPerRequest: number;
-
-    constructor(estimatedTokensPerRequest: number) {
-        this.estimatedTokensPerRequest = estimatedTokensPerRequest
-    }
-
     log(queueLength: number) {
         console.log(`(OPEN-AI) In-Queue: ${queueLength} | ${this.remainingRequests}/${this.limitRequests} req, ${(this.remainingTokens).toLocaleString()} / ${this.limitTokens.toLocaleString()} tokens`);
     }
 
-    semaphoreCanGo() {
-        const remReq = this.remainingRequests - (this.requestsInProcess + 1);
-        const remTkn = this.remainingTokens - (this.tokensInProcess + this.estimatedTokensPerRequest);
-        return remReq >= 0 && remTkn >= 0;
-    }
+    semaphore = (estimatedTokens: number) => ({
+        canGo: () => {
+            const remReq = this.remainingRequests - (this.requestsInProcess + 1);
+            const remTkn = this.remainingTokens - (this.tokensInProcess + estimatedTokens);
+            return remReq >= 0 && remTkn >= 0;    
+        },
+        acquire: () => {
+            this.requestsInProcess++;
+            this.tokensInProcess += estimatedTokens;
+        },
+        release: () => {
+            this.requestsInProcess--;
+            this.tokensInProcess -= estimatedTokens;
+        }
+    })
 
-    acquire() {
-        this.requestsInProcess++;
-        this.tokensInProcess += this.estimatedTokensPerRequest;
-    }
-
-    release() {
-        this.requestsInProcess--;
-        this.tokensInProcess -= this.estimatedTokensPerRequest;
-    }
-
-    private requestReset: NodeJS.Timeout = setTimeout(() => null)
-    private tokenReset: NodeJS.Timeout = setTimeout(() => null)
-    private limit429: NodeJS.Timeout = setTimeout(() => null)
+    private requestReset: NodeJS.Timeout = setTimeout(() => null);
+    private tokenReset: NodeJS.Timeout = setTimeout(() => null);
+    private limit429: NodeJS.Timeout = setTimeout(() => null);
+    private isLimit429 = false;
     updateRateLimit(res: Response) {
         try {
             if (res.status === 429) {
@@ -152,12 +49,18 @@ export class OpenAiRateLimiter {
 
                 console.log(res)
 
+                clearTimeout(this.requestReset);
+                clearTimeout(this.tokenReset);
                 clearTimeout(this.limit429);
+                this.isLimit429 = true;
                 this.limit429 = setTimeout(() => {
+                    this.isLimit429 = false;
                     this.remainingRequests = 1;
-                    this.remainingTokens = this.estimatedTokensPerRequest + 1
-                }, 15)
+                    this.remainingTokens = this.limitTokens;
+                }, msTime.s * 15) // More optimal for OpenAI rolling window
             } else if (res.status === 200) {
+                if (this.isLimit429) return;
+
                 const h = res.headers;
                 const date = new Date(h.get('date')!);
                 if (this.limitDate > date.getTime()) return;
@@ -191,7 +94,7 @@ export class OpenAiRateLimiter {
                 this.tokenReset = setTimeout(() => {
                     this.remainingTokens = this.limitTokens;
                 }, resetTokensMs)
-            } 
+            }
         } catch(err) {
             console.log(res)
             console.error(err)
@@ -200,22 +103,25 @@ export class OpenAiRateLimiter {
     }
 }
 
-export class OpenAiPromptQueue {
-    private genPromptRequest: ReturnType<typeof openAiRequestOptionsFn>;
+export class OpenAiPrompts {
+    private queue: { 
+        reqInit: ReqInit,
+        resolve: (value: any) => void 
+    }[] = [];
     private limiter: OpenAiRateLimiter;
     private isProcessingQueue = false;
-    private queue: { reqInit: ReqInit, tries: number; resolve: (value: any) => void }[] = [];
     private responsesRoute: string;
+    private apiKey: string;
 
     constructor(
-        llmModel: string,
-        opts: PromptReqOpts & {
-            estimatedTokensPerRequest: number;
+        opts: {
+            apiKey: string;
             openAiResponsesRoute?: string;
         },
     ) {
-        this.limiter = new OpenAiRateLimiter(opts.estimatedTokensPerRequest);
-        this.genPromptRequest = openAiRequestOptionsFn(llmModel, opts);
+        // this.genPromptRequest = openAiRequestOptionsFn(llmModel, opts);
+        this.limiter = new OpenAiRateLimiter();
+        this.apiKey = opts.apiKey;
         this.responsesRoute = opts.openAiResponsesRoute || "https://api.openai.com/v1/responses";
     }
 
@@ -224,49 +130,66 @@ export class OpenAiPromptQueue {
         this.isProcessingQueue = true;
 
         while (this.queue.length) {
-            const { reqInit, resolve, tries } = this.queue.shift()!;
+            const job = this.queue.shift()!;
+            const semaphore = this.limiter.semaphore(job.reqInit.estimatedTokens)
 
             await wait(0);
-            while(!this.limiter.semaphoreCanGo()) await wait(200);
-
-            this.limiter.acquire();
-
-            let response: Response | { ok: false }
-            try {
-                response = await fetch(this.responsesRoute, reqInit);
-                this.limiter.updateRateLimit(response);
-            } catch(err) {
-                console.log(err)
-                response = { ok: false }
-            }
-            
-            this.limiter.release();
-
-            let data: any;
-            if (response.ok) try {
-                data = await response.json()
-            } catch {}
-
-            if (response.ok && data) {
-                resolve({ ok: true, data });
-            } else if (tries < MAX_RETRIES) {
-                await wait(2_500 * tries);
-                this.queue.push({ reqInit, resolve, tries: tries + 1 });
-            } else {
-                resolve({ ok: false, error: { message: `Failed to fetch data ${tries} times` } });
-            }
-
-            this.limiter.log(this.queue.length)
+            while(!semaphore.canGo()) await wait(500);
+            this.runJob(job, semaphore)
         }
 
         this.isProcessingQueue = false;
     }
 
-    enqueuePrompt<T>(promptText: string) {
-        const reqInit = this.genPromptRequest(promptText);
-        return new Promise<T>(resolve => {
-            this.queue.push({ reqInit, resolve, tries: 1 })
-            this.processQueue();
-        })
+    private async runJob(
+        job: { reqInit: ReqInit; resolve: (v: any) => void },
+        sem: ReturnType<OpenAiRateLimiter['semaphore']>,
+    ) {
+        let tries = 0;
+        try {
+            sem.acquire();
+            job.reqInit.headers.Authorization = "Bearer " + this.apiKey;
+            
+            let res: OpenAiTryFetchResult;
+            while (true) {
+                tries++;
+                res = await openAITryFetch(this.responsesRoute, job.reqInit);
+                if (res.response) this.limiter.updateRateLimit(res.response);
+
+                if (res.ok || !res.retryable || tries >= MAX_RETRIES) break;
+
+                const delayMs = res.retryAfter != null ? res.retryAfter * 1000 : 2_500 * tries;
+                await wait(delayMs);
+            }
+
+            const data = res.ok ? extractOutputJson(res.data) : null;
+            job.resolve({ ...res, data });
+        } catch(err) {
+            console.log(err);
+            job.resolve({ ok: false, status: 0, retryable: false, retryAfter: null, error: null, reason: "non-api-internal" });
+        } finally {
+            sem.release();
+            this.limiter.log(this.queue.length);
+        }
     }
+
+    genPromptRequest = <T>(
+        llmModel: string,
+        opts: PromptReqOpts,
+    ) => {
+        const systemPrompt = openAiRequestOptionsFn(llmModel, opts);
+        return (promptText: string) => {
+            const reqInit = systemPrompt(promptText)
+            return this.enqueuePrompt<T>(reqInit);
+        }
+    }
+
+    enqueuePrompt = <T>(reqInit: ReqInit) => new Promise<
+        OpenAiTryFetchResult & { data: T }
+        |
+        OpenAiTryFetchResult & { data?: undefined | null }
+    >(resolve => {
+        this.queue.push({ reqInit, resolve })
+        this.processQueue();
+    })
 }
