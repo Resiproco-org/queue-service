@@ -126,7 +126,7 @@ export class OpenAiPrompts {
     }
 
     private async processQueue() {
-        if (this.isProcessingQueue || this.queue.length === 0) return;
+        if (this.isProcessingQueue || !this.queue.length) return;
         this.isProcessingQueue = true;
 
         while (this.queue.length) {
@@ -135,7 +135,7 @@ export class OpenAiPrompts {
 
             await wait(0);
             while(!semaphore.canGo()) await wait(500);
-            this.runJob(job, semaphore)
+            void this.runJob(job, semaphore)
         }
 
         this.isProcessingQueue = false;

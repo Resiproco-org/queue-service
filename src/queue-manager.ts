@@ -1,49 +1,48 @@
-import { promiseOut } from "@giveback007/util-lib";
+// Not tested so I wont ship for now, leave this when need to implement and test:
+// export class BatchProcessManager<T extends { id: string }, R = any> {
+//     private batch: { resolve: (value: any) => void; data: T; }[] = [];
+//     private flushTimer: ReturnType<typeof setTimeout> | null = null;
+//     private queueManager: QueueManager<any>;
+//     private msTimeAccumulate: number;
+//     private processBatch: (batch: T[]) => 
+//         Promise<{ id: string; res: R }[]> | { id: string; res: R }[]
 
-export class BatchProcessManager<T extends { id: string }, R = any> {
-    private batch: { resolve: (value: any) => void; data: T; }[] = [];
-    private flushTimer: ReturnType<typeof setTimeout> | null = null;
-    private queueManager: QueueManager<any>;
-    private msTimeAccumulate: number;
-    private processBatch: (batch: T[]) => 
-        Promise<{ id: string; res: R }[]> | { id: string; res: R }[]
+//     constructor(
+//         /** concurrency limiter */
+//         limit: ILimiter,
+//         /** wait time from initiation before executing processing */
+//         msTimeAccumulate: number,
+//         processBatch: typeof this.processBatch,
+//     ) {
+//         this.msTimeAccumulate = msTimeAccumulate;
+//         this.processBatch = processBatch;
+//         this.queueManager = new QueueManager(limit);
+//     }
 
-    constructor(
-        /** concurrency limiter */
-        limit: ILimiter,
-        /** wait time from initiation before executing processing */
-        msTimeAccumulate: number,
-        processBatch: typeof this.processBatch,
-    ) {
-        this.msTimeAccumulate = msTimeAccumulate;
-        this.processBatch = processBatch;
-        this.queueManager = new QueueManager(limit);
-    }
+//     enqueue = (data: T) => {
+//         const { resolve, promise } = promiseOut();
+//         this.batch.push({ resolve, data });
 
-    enqueue = (data: T) => {
-        const { resolve, promise } = promiseOut();
-        this.batch.push({ resolve, data });
+//         this.scheduleFlush();
+//         return promise;
+//     }
 
-        this.scheduleFlush();
-        return promise;
-    }
-
-    private scheduleFlush = () => {
-        if (this.flushTimer) return;
+//     private scheduleFlush = () => {
+//         if (this.flushTimer) return;
         
-        this.flushTimer = setTimeout(() => {
-            this.queueManager.enqueue(async () => {
-                this.flushTimer = null;
-                const _batch = this.batch;
-                this.batch = [];
+//         this.flushTimer = setTimeout(() => {
+//             this.queueManager.enqueue(async () => {
+//                 this.flushTimer = null;
+//                 const _batch = this.batch;
+//                 this.batch = [];
 
-                const map = new Map(_batch.map(x => [x.data.id, x]));
-                const results = await this.processBatch(_batch.map(x => x.data));
-                results.forEach(x => map.get(x.id)?.resolve(x.res));
-            })
-        }, this.msTimeAccumulate);
-    }
-}
+//                 const map = new Map(_batch.map(x => [x.data.id, x]));
+//                 const results = await this.processBatch(_batch.map(x => x.data));
+//                 results.forEach(x => map.get(x.id)?.resolve(x.res));
+//             })
+//         }, this.msTimeAccumulate);
+//     }
+// }
 
 export class QueueManager<T, Fn extends () => Promise<T> = () => Promise<T>> {
     private queue: (() => Promise<void>)[] = [];
@@ -89,7 +88,6 @@ export class QueueManager<T, Fn extends () => Promise<T> = () => Promise<T>> {
         } catch(err) {
             // TODO: send to sentry
             console.error(err);
-            throw err // <- this shouldn't happen;
         } finally {
             this.limit.release();
             this.drain(); // ! <- Run Again After Release Of Limit

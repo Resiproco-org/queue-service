@@ -18,12 +18,12 @@ function cleanUp<TJob extends Job>(
             if (!isDone(job)) return;
 
             const age = now - (job.completedAt ?? job.createdAt)
-            if (age >= jobTLL) jobs.del(id)
+            if (age >= jobTLL) jobs.del(id).catch(console.error)
         })
 
         if (!persistence) return;
         const idSet = new Set(jobs.toArr().map(([, x]) => x.id))
-        persistence.cleanupOrphans(idSet);
+        persistence.cleanupOrphans(idSet).catch(console.error);
     }, cleanupIntv)
     cleanupTimer.unref()
 
@@ -63,12 +63,14 @@ export function jobQueueRoutesConcurrent<
 ) {    
     if (opts.apiKey) {
         app.addHook('onRequest', async (req, reply) => {
-            if (req.url === '/health') return;
+            if (req.routeOptions.url === '/health') return;
 
             const apiKey = req.headers['x-api-key']
                 || (req.query as Record<string, string>)['api_key'];
 
             if (apiKey !== opts.apiKey) {
+                // https://fastify.dev/docs/latest/Reference/Hooks/#respond-to-a-request-from-a-hook
+                // Fastify will prevent other routes if unauthorized
                 reply.code(401).send({ error: 'unauthorized' });
             }
         });
@@ -86,8 +88,7 @@ export function jobQueueRoutesConcurrent<
         if (Array.isArray(job)) {
             return Promise.all(job.map(x => jobs.setStatus(x.id, status)));
         } else {
-            const id = typeof job === 'string' ? job : job.id;
-            return jobs.setStatus(id, status)
+            return jobs.setStatus(job.id, status)
         }
     }
 
@@ -172,7 +173,7 @@ export function jobQueueRoutesConcurrent<
 
     const JOB_TTL = opts.jobTTL ?? time.hrs(72);
     const CLEANUP_INTERVAL = opts.cleanupIntv ?? time.min(15);
-    const cleanupTimer = cleanUp(jobs, JOB_TTL, CLEANUP_INTERVAL);
+    const cleanupTimer = cleanUp(jobs, JOB_TTL, CLEANUP_INTERVAL, opts.persistence);
 
     app.addHook('onReady', async () => {
         // status is only persisted on "failed", "completed", and "pending"
