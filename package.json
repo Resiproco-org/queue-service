@@ -40,6 +40,7 @@
         "typescript": "7.0.1-rc"
     },
     "dependencies": {
+        "@fastify/multipart": "^10.0.0",
         "@giveback007/util-lib": "^4.0.1"
     },
     "peerDependencies": {

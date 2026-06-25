@@ -1,6 +1,6 @@
 import { writeFile, rename, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { readJsonFile } from './general.utils.js';
+import { readJsonFile } from './utils/general.utils.js';
 
 const TYPE_TEMP = '.persist.temp';
 const TYPE_JSON = '.persist.json';
@@ -27,7 +27,7 @@ export class PersistenceViaJsonFiles<TJob extends Job> implements PersistenceAda
     async load(): Promise<TJob[]> {
         const files = await readdir(this.dir);
 
-        const jobs: TJob[] = []
+        const jobs: TJob[] = [];
         for (const f of files) {
             if (!f.endsWith(TYPE_JSON)) continue;
             try {

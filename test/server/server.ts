@@ -1,7 +1,11 @@
 import Fastify from "fastify";
-import { PersistenceViaJsonFiles, jobQueueRoutesConcurrent } from "../../src/";
-import { numRandInt, wait } from "@giveback007/util-lib";
-import { join } from "node:path";
+
+import type { FilePaths } from "../../src/utils/file-paths.js";
+import { PersistenceViaJsonFiles, jobQueueRoutesConcurrent } from "../../src/index.js";
+import { createFileUploadHandlers, registerMultipart } from "../../src/uploads.js";
+
+import { DIRS, MAX_UPLOAD_FILE_SIZE, MIME } from "./consts.config.js";
+
 
 const log = console.log;
 
@@ -9,20 +13,29 @@ setTimeout(async () => {
     const { API_KEY } = process.env as { API_KEY: string };
     if (!API_KEY) throw new Error("NO 'API_KEY' SET!");
 
-    const app = Fastify()
+    const app = Fastify();
+    await registerMultipart(app, {
+        limits: { fileSize: MAX_UPLOAD_FILE_SIZE, files: 1 }
+    })
+
+    const uploadHandler = createFileUploadHandlers(DIRS, MIME.allowed);
 
     jobQueueRoutesConcurrent<
-        { id: string },
-        { id: string, start: number },
+        {},
+        FilePaths,
         { id: string, start: number, end: number }
     >(app, {
         concurrency: 150,
-        onJobRequest: (req) => ({ ok: true, data: { id: req.body.id, start: Date.now() } }),
-        persistence: new PersistenceViaJsonFiles(join(import.meta.dirname, '/tmp')),
+        persistence: new PersistenceViaJsonFiles(DIRS.PERSISTENCE),
+        onJobRequest: uploadHandler.onJobRequest,
+        onDelete: uploadHandler.onDelete,
         process: async (data) => {
-            await wait(numRandInt(1, 12) * 1000);
-            
-            return { ok: true, jobId: data.id, data: { ...data, end: Date.now() } }
+            try {
+                // For now: maybe use pdfjs or just read the file and say "not implemented"
+                return { ok: false, jobId: data.id, error: { message: 'PDF processing not implemented yet' } };
+            } catch (err) {
+                return { ok: false, jobId: data.id, error: { message: 'processing error', cause: err } };
+            }
         },
         apiKey: API_KEY,
     })

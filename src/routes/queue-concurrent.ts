@@ -6,14 +6,6 @@ import { QueueManager } from '../queue-manager.js';
 import { Limiter } from '../limiter.js';
 import { isDone } from '../rules/general.rules.js';
 
-type JobData<T> = 
-    | { ok: true;   data: T;            error?: undefined;                      status?: undefined; } 
-    | { ok: false;  data?: undefined;   error: { message: string } & AnyRec;    status: number; }
-
-type JobResult<T> = 
-    | { ok: true;   data: T;            error?: undefined;  jobId: string; }
-    | { ok: false;  data?: undefined;   error: JobError;    jobId: string; }
-
 function cleanUp<TJob extends Job>(
     jobs: JobStore<TJob>,
     jobTLL: number,
@@ -159,7 +151,7 @@ export function jobQueueRoutesConcurrent<
             return { error: { message: 'not ready' } };
         }
 
-        return job;
+        return job.result;
     });
 
     // Step 4: Cleanup/delete job data

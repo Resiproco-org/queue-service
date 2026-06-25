@@ -12,6 +12,14 @@ type Job<TData = any, TResult = any> = {
     error?: JobError;
 }
 
+type JobData<T> = 
+    | { ok: true;   data: T;            error?: undefined;                      status?: undefined; } 
+    | { ok: false;  data?: undefined;   error: { message: string } & AnyRec;    status: number; }
+
+type JobResult<T> = 
+    | { ok: true;   data: T;            error?: undefined;  jobId: string; }
+    | { ok: false;  data?: undefined;   error: JobError;    jobId: string; }
+
 type PersistenceAdapter<TJob extends Job> = {
     save: (job: TJob) => Promise<boolean>;
     load: () => Promise<TJob[]>;
