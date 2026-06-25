@@ -258,6 +258,193 @@ saved.filter(j => j.status === 'pending').forEach(queueJob)
 
 ---
 
+## 8. File uploads
+
+For services that accept file uploads (`multipart/form-data`), the lib provides a pipeline for receiving, validating, and cleaning up files.
+
+### Quick start
+
+```ts
+import Fastify from 'fastify'
+import {
+    jobQueueRoutesConcurrent, createFileUploadHandlers,
+    initDataDirs, mimeConfig, registerMultipart,
+    PersistenceViaJsonFiles
+} from '@resiproco/queue-service'
+
+const DIRS = await initDataDirs('./data')
+const MIME = mimeConfig({ 'application/pdf': 'pdf' } as const)
+
+const app = Fastify()
+await registerMultipart(app, { limits: { fileSize: 15 * 1024 * 1024, files: 1 } })
+
+const upload = createFileUploadHandlers(DIRS, MIME.allowed)
+
+jobQueueRoutesConcurrent(app, {
+    concurrency: 5,
+    persistence: new PersistenceViaJsonFiles(DIRS.PERSISTENCE),
+    onJobRequest: upload.onJobRequest,   // receives file, streams to disk
+    process: async (data) => ({ ok: true, jobId: data.id, data: {} }),
+    onDelete: (job) => upload.onDelete(job.data),  // removes all task files
+})
+```
+
+The client sends a multipart POST:
+
+```ts
+import { readFile } from 'node:fs/promises'
+
+const pdf = await readFile('./document.pdf')
+const file = new File([pdf], 'document.pdf', { type: 'application/pdf' })
+
+const form = new FormData()
+form.append('file', file, 'document.pdf')
+
+const { id } = await fetch('http://localhost:3000/jobs', {
+    method: 'POST',
+    headers: { 'x-api-key': '...' },
+    body: form,  // fetch sets multipart boundary automatically
+}).then(r => r.json())
+```
+
+### `createFileUploadHandlers(dirs, allowedMimeTypes?)`
+
+Factory that returns the `onJobRequest` + `onDelete` pair wired together.
+
+```ts
+import { createFileUploadHandlers } from '@resiproco/queue-service'
+
+const upload = createFileUploadHandlers(DIRS, MIME.allowed)
+// → { onJobRequest: (req) => ..., onDelete: (paths: FilePaths) => ... }
+```
+
+`onDelete` accepts `FilePaths` directly — pass it through in your opts:
+```ts
+onDelete: (job) => upload.onDelete(job.data),
+```
+
+When `allowedMimeTypes` is omitted, any file type is accepted.
+
+### `receiveUpload(req, opts)`
+
+The standalone file-receive pipeline. Use inside a custom `onJobRequest` when you need extra validation or logic.
+
+```ts
+import { receiveUpload } from '@resiproco/queue-service'
+
+onJobRequest: async (req) => receiveUpload(req, { dirs: DIRS }),
+```
+
+Internally it:
+1. Reads the multipart file via `req.file()`
+2. Validates against `allowedMimeTypes` (if provided)
+3. Generates file paths via `createFilePaths(dirs)`
+4. Streams the file to `<uploadDir>/<id>.temp`
+5. Atomically renames `.temp` → `<uploadDir>/<id>.uploaded`
+
+Returns `{ ok: true, data: FilePaths }` on success, or `{ ok: false, error, status }` on failure.
+
+```ts
+type FilePaths = {
+    id:         string   // job id, also the file's UUID
+    tmpPath:    string   // .temp — only exists mid-write
+    uploadPath: string   // .uploaded — the renamed file
+    outDir:     string   // results directory for this task
+    errDir:     string   // error context directory
+}
+```
+
+### `removeTaskFiles(paths)`
+
+Deletes all file artifacts for a task. Used inside `onDelete` to clean up when a job is removed (manually or via TTL sweep).
+
+```ts
+import { removeTaskFiles } from '@resiproco/queue-service'
+
+// in jobQueueRoutesConcurrent opts:
+onDelete: (job) => removeTaskFiles(job.data),
+```
+
+Calls `rm -rf` on `tmpPath`, `uploadPath`, `outDir`, and `errDir`. Uses `force: true` and `Promise.allSettled` — missing files are silently skipped, no errors thrown.
+
+### `registerMultipart(app, opts?)`
+
+Registers `@fastify/multipart` on the app. A thin wrapper for convenience — equivalent to `app.register(fastifyMultipart, opts)`.
+
+```ts
+import { registerMultipart } from '@resiproco/queue-service'
+
+await registerMultipart(app, { limits: { fileSize: 15 * 1024 * 1024, files: 1 } })
+```
+
+The multipart plugin **must** be registered before calling `jobQueueRoutesConcurrent` for `req.file()` to work inside `onJobRequest`.
+
+---
+
+## 9. Path & config utilities
+
+### `createFilePaths(dirs, id?)`
+
+Generates standardized file paths for a task. If `id` is omitted, a UUID is generated automatically.
+
+```ts
+import { createFilePaths } from '@resiproco/queue-service'
+
+const paths = createFilePaths(DIRS)
+// → { id: "abc123...", tmpPath, uploadPath, outDir, errDir }
+```
+
+### `initDataDirs(dataDir)`
+
+Creates the directory structure for a service. Mutates and returns a `DataDirs` object with all subdirectories underneath `dataDir`.
+
+```ts
+import { initDataDirs } from '@resiproco/queue-service'
+
+const DIRS = await initDataDirs('./data')
+// → {
+//   DATA:        "./data",
+//   UPLOAD:      "./data/uploads",
+//   RESULTS:     "./data/results",
+//   ERRORS:      "./data/errors",
+//   PERSISTENCE: "./data/persistence",
+// }
+```
+
+Each directory is created with `mkdir -p` (recursive). Safe to call on every boot — existing directories are no-ops.
+
+```ts
+type DataDirs = {
+    DATA:        string
+    UPLOAD:      string   // where uploaded files land
+    RESULTS:     string   // where processing output goes
+    ERRORS:      string   // where error snapshots are saved
+    PERSISTENCE: string   // where JobStore persists to
+}
+```
+
+### `mimeConfig(map)`
+
+Wraps a MIME-type-to-extension map into a reusable config object.
+
+```ts
+import { mimeConfig } from '@resiproco/queue-service'
+
+const MIME = mimeConfig({
+    'application/pdf': 'pdf',
+    'image/jpeg':      'jpg',
+    'image/png':       'png',
+} as const)
+
+MIME.map                          // the original map
+MIME.allowed.has(data.mimetype)   // Set<string> for validation
+MIME.extensions                   // ['pdf', 'jpg', 'png']
+```
+
+Use it with `receiveUpload` or `createFileUploadHandlers` to restrict which file types are accepted.
+
+---
+
 ## Routes
 
 | Method | Path | Description |
@@ -265,7 +452,7 @@ saved.filter(j => j.status === 'pending').forEach(queueJob)
 | `GET` | `/health` | Returns `{ ok: true }` (no auth) |
 | `POST` | `/jobs` | Create a job. Pass body matching `TBody`. Returns `201 { id }`. |
 | `GET` | `/jobs/:id` | Get job status. Returns `{ id, status, createdAt, startedAt, completedAt }`. |
-| `GET` | `/jobs/:id/result` | Get full job including `result` or `error`. `202` if still in progress. |
+| `GET` | `/jobs/:id/result` | Get the job result data (from `process()`). `202` if still in progress. |
 | `DELETE` | `/jobs/:id` | Remove a completed or failed job. |
 
 ---

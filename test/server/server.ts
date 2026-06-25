@@ -28,7 +28,7 @@ setTimeout(async () => {
         concurrency: 150,
         persistence: new PersistenceViaJsonFiles(DIRS.PERSISTENCE),
         onJobRequest: uploadHandler.onJobRequest,
-        onDelete: uploadHandler.onDelete,
+        onDelete: (job) => uploadHandler.onDelete(job.data),
         process: async (data) => {
             try {
                 // For now: maybe use pdfjs or just read the file and say "not implemented"

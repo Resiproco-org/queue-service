@@ -21,18 +21,11 @@ export function createFileUploadHandlers(
         onJobRequest: (req: FastifyRequest) =>
             receiveUpload(req, { dirs, allowedMimeTypes }),
 
-        onDelete: async (job: Job) => {
-            const paths = job.data as FilePaths;
-            await Promise.allSettled(
-                [paths.tmpPath, paths.uploadPath, paths.outDir]
-                    .map(f => rm(f, { recursive: true, force: true }))
-            );
-            return true;
-        },
+        onDelete: async (paths: FilePaths) => removeTaskFiles(paths),
     };
 }
 
-async function receiveUpload(
+export async function receiveUpload(
     req: FastifyRequest,
     opts: {
         dirs: DataDirs,
@@ -60,4 +53,12 @@ async function receiveUpload(
         console.error(err);
         return { ok: false, status: 500, error: { message: 'Internal server error' } };
     }
+}
+
+export async function removeTaskFiles(paths: FilePaths): Promise<boolean> {
+    await Promise.allSettled(
+        [paths.tmpPath, paths.uploadPath, paths.outDir, paths.errDir]
+            .map(f => rm(f, { recursive: true, force: true }))
+    );
+    return true;
 }
