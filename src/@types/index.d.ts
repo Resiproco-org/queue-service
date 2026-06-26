@@ -1,5 +1,5 @@
 type AnyRec<T = unknown> = Record<string, T>;
-type JobError = { message: string; cause?: any };
+type JobError = { message: string; name?: string; stack?: string; code?: any; cause?: any } & AnyRec;
 
 type Job<TData = any, TResult = any> = {
     id: string;

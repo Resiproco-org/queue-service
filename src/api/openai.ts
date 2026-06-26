@@ -1,7 +1,15 @@
 import type { OpenAiTryFetchResult } from "../@types/openai.js";
 
 import { msTime, wait } from "@giveback007/util-lib";
-import { extractOutputJson, getMsTime, openAiRequestOptionsFn, openAITryFetch, type PromptReqOpts, type ReqInit } from "./openai.utils.js";
+import {
+    extractOutputJson,
+    getMsTime,
+    openAiRequestOptionsFn,
+    openAITryFetch,
+    type FileInput,
+    type PromptReqOpts,
+    type ReqInit,
+} from "./openai.utils.js";
 
 const MAX_RETRIES = 5;
 
@@ -103,9 +111,10 @@ export class OpenAiRateLimiter {
     }
 }
 
-export class OpenAiPrompts {
+export class OpenAIResponses {
     private queue: { 
         reqInit: ReqInit,
+        files?: FileInput[],
         resolve: (value: any) => void 
     }[] = [];
     private limiter: OpenAiRateLimiter;
@@ -119,7 +128,6 @@ export class OpenAiPrompts {
             openAiResponsesRoute?: string;
         },
     ) {
-        // this.genPromptRequest = openAiRequestOptionsFn(llmModel, opts);
         this.limiter = new OpenAiRateLimiter();
         this.apiKey = opts.apiKey;
         this.responsesRoute = opts.openAiResponsesRoute || "https://api.openai.com/v1/responses";
@@ -149,7 +157,7 @@ export class OpenAiPrompts {
         try {
             sem.acquire();
             job.reqInit.headers.Authorization = "Bearer " + this.apiKey;
-            
+
             let res: OpenAiTryFetchResult;
             while (true) {
                 tries++;
@@ -173,23 +181,27 @@ export class OpenAiPrompts {
         }
     }
 
-    genPromptRequest = <T>(
+    createPrompt = <T>(
         llmModel: string,
         opts: PromptReqOpts,
     ) => {
-        const systemPrompt = openAiRequestOptionsFn(llmModel, opts);
-        return (promptText: string) => {
-            const reqInit = systemPrompt(promptText)
+        const prompt = openAiRequestOptionsFn(llmModel, opts);
+        
+        return (promptText: string, files?: FileInput[]) => {
+            const reqInit = prompt(promptText, files)
             return this.enqueuePrompt<T>(reqInit);
         }
     }
 
-    enqueuePrompt = <T>(reqInit: ReqInit) => new Promise<
+    enqueuePrompt = <T>(
+        reqInit: ReqInit, 
+        files?: FileInput[],
+    ) => new Promise<
         OpenAiTryFetchResult & { data: T }
         |
         OpenAiTryFetchResult & { data?: undefined | null }
     >(resolve => {
-        this.queue.push({ reqInit, resolve })
+        this.queue.push({ reqInit, files, resolve })
         this.processQueue();
     })
 }

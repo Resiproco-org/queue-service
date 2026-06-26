@@ -17,13 +17,14 @@ export class JobStore<TJob extends Job> {
     }
 
     get = (id: string) => this.jobs.get(id);
+    has = (id: string) => this.jobs.has(id);
     set = (id: string, val: TJob) => this.jobs.set(id, val);
     del = async (id: string) => {
         const job = this.get(id);
         this.jobs.delete(id);
         
         await this.persistence?.delete(id);
-        return job ? this.onDelete?.(job) : true;
+        return job ? this.onDelete?.(job) ?? true : true;
     }
     get size() { return this.jobs.size; }
 
@@ -64,7 +65,8 @@ export class JobStore<TJob extends Job> {
         job.status = status;
         if (isDone(job)) {
             job.completedAt = Date.now();
-            if (this.persistence) return await this.persistence.save(job);
+            if (this.persistence)
+                return await this.persistence.save(job);
         } else if (status === 'processing') {
             job.startedAt = Date.now();
         }

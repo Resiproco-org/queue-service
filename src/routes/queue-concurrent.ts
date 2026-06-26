@@ -5,6 +5,8 @@ import { JobStore } from '../job-store.js';
 import { QueueManager } from '../queue-manager.js';
 import { Limiter } from '../limiter.js';
 import { isDone } from '../rules/general.rules.js';
+import { ensureDir, serializeError, writeJson } from '../utils/general.utils.js';
+import { join } from 'node:path';
 
 function cleanUp<TJob extends Job>(
     jobs: JobStore<TJob>,
@@ -43,12 +45,16 @@ export function jobQueueRoutesConcurrent<
     app: FastifyInstance,
     opts: {
         concurrency: number;
+        /** Directory where every failed job's full JSON is written. Never auto-cleaned. */
+        errorsDir: string;
         /** Runs on `POST "/jobs"` request. Create data to pass to processing.  */
         onJobRequest: (req: FastifyRequest<{ Body: TBody }>) => MaybePromise<JobData<TData>>;
         /** Used to re-initialize all jobs in case of server reboot */
         process: (data: TData) => Promise<JobResult<TResult>>;
         /** Runs on DELETE `/jobs/:id` is called */
         onDelete?: (job: TJob) => MaybePromise<boolean>,
+        /** Runs after a job fails (both `ok:false` returns and thrown errors), after `job.json` is written */
+        onError?: (job: TJob, error: JobError) => MaybePromise<void>,
         persistence?: PersistenceAdapter<TJob>;
         jobTTL?: number;        // ms, default 72h
         cleanupIntv?: number;   // ms, default 15min
@@ -92,22 +98,38 @@ export function jobQueueRoutesConcurrent<
         }
     }
 
-    const queueJob = (job: TJob)  => queue.enqueue(async () => {
-        await status(job, "processing");
+    async function saveError(job: TJob) {
         try {
+            const errDir = join(opts.errorsDir, job.id);
+            await ensureDir(errDir);
+            await writeJson(join(errDir, 'job.json'), job, true);
+        } catch (e) { console.error(e) }
+
+        try { await opts.onError?.(job, job.error!); }
+        catch (e) { console.error(e) }
+    }
+
+    const queueJob = (job: TJob)  => queue.enqueue(async () => {
+        try {
+            await status(job, "processing");
+            
             const result = await opts.process(job.data);
-            if (result.ok) {
+            if (!jobs.has(job.id)) {
+                // job was deleted mid flight do nothing
+            } else if (result.ok) {
                 job.result = result.data;
                 await status(job, 'completed');
             } else {
-                job.error = result.error;
+                job.error = { ...result.error, cause: serializeError(result.error.cause) };
                 await status(job, 'failed');
+                await saveError(job);
             }
         } catch(err: any) {
             console.error(err);
 
-            job.error = { message: "Internal Error", cause: err.cause || err };
+            job.error = serializeError(err);
             await status(job, 'failed');
+            await saveError(job);
         }
     })
 
@@ -136,7 +158,7 @@ export function jobQueueRoutesConcurrent<
             return { error: { message: 'not found' } };
         }
 
-        return objExtract(job, ['id', 'status', 'createdAt', 'startedAt', 'completedAt']);
+        return objExtract(job, ['id', 'status', 'createdAt', 'startedAt', 'completedAt', 'error']);
     });
 
     // Step 3: Get the job result
@@ -147,9 +169,14 @@ export function jobQueueRoutesConcurrent<
             return { error: { message: 'not found' } };
         }
 
-        if (!isDone(job)) { 
-            reply.code(202); 
+        if (!isDone(job)) {
+            reply.code(202);
             return { error: { message: 'not ready' } };
+        }
+
+        if (job.status === 'failed') {
+            reply.code(422);
+            return { error: job.error };
         }
 
         return job.result;

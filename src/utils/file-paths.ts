@@ -13,6 +13,8 @@ export type FilePaths = {
     outDir: string;
     /** directory where errors with all file context can be stored long term */
     errDir: string;
+    /** sniffed MIME type (verified from file contents, not the request header) */
+    mime?: string;
 }
 
 export type DataDirs = {
